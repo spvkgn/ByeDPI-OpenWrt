@@ -11,7 +11,7 @@ jobs:
       tag: ${{ steps.gh.outputs.tag }}
     strategy:
       matrix:
-        branch: [openwrt-22.03, openwrt-23.05]
+        branch: [openwrt-21.02, openwrt-22.03, openwrt-23.05]
         arch:
           - aarch64_cortex-a53
           - aarch64_cortex-a72
@@ -30,8 +30,6 @@ jobs:
           - arm_fa526
           - arm_mpcore
           - arm_xscale
-          - i386_pentium-mmx
-          - i386_pentium4
           - mips64_octeonplus
           - mips_24kc
           - mips_4kec
@@ -42,10 +40,11 @@ jobs:
           - mipsel_mips32
           - x86_64
         include:
-          - branch: openwrt-21.02
-            arch: mipsel_24kc
           - branch: SNAPSHOT
             arch: x86_64
+        exclude:
+          - branch: openwrt-21.02
+            arch: arm_cortex-a7_vfpv4
     container:
       image: openwrt/sdk:${{ matrix.arch }}-${{ matrix.branch }}
       options: --user root
@@ -127,7 +126,7 @@ jobs:
         with:
           pattern: ipk-*
 
-      - name: Prepare files to publish
+      - name: Prepare files
         run: |
           mkdir public
           find . -name 'ipk-*.tar' -exec tar -C ./public -xvf {} \;
@@ -149,21 +148,18 @@ jobs:
     strategy:
       max-parallel: 1
       matrix:
-        branch: ['21.02']
+        branch: ['21.02', '22.03', '23.05']
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: ipk-*
 
-      - name: Put ipk into zip
-        id: zip
+      - name: Prepare files
         env:
           BRANCH: ${{ matrix.branch }}
         run: |
           find . -name "ipk-openwrt-$BRANCH-*.tar" -exec tar xvf {} --wildcards '*.ipk' \;
-          mkdir -p public
-          find $BRANCH -mindepth 1 -type d -exec sh -c 'zip -0 ./public/byedpi-$(basename {}).ipk.zip -j {} {}/*' \;
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
@@ -175,4 +171,4 @@ jobs:
           body: |
             ByeDPI ${{ needs.build.outputs.tag }} for OpenWrt ${{ matrix.branch }}
           files: |
-            ./public/*.zip
+            ./**/*.ipk
