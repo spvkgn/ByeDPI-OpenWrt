@@ -1,0 +1,178 @@
+name: build
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.gh.outputs.tag }}
+    strategy:
+      matrix:
+        branch: [openwrt-22.03, openwrt-23.05]
+        arch:
+          - aarch64_cortex-a53
+          - aarch64_cortex-a72
+          - aarch64_generic
+          - arm_arm1176jzf-s_vfp
+          - arm_arm926ej-s
+          - arm_cortex-a15_neon-vfpv4
+          - arm_cortex-a5_vfpv4
+          - arm_cortex-a7
+          - arm_cortex-a7_neon-vfpv4
+          - arm_cortex-a7_vfpv4
+          - arm_cortex-a8_vfpv3
+          - arm_cortex-a9
+          - arm_cortex-a9_neon
+          - arm_cortex-a9_vfpv3-d16
+          - arm_fa526
+          - arm_mpcore
+          - arm_xscale
+          - i386_pentium-mmx
+          - i386_pentium4
+          - mips64_octeonplus
+          - mips_24kc
+          - mips_4kec
+          - mips_mips32
+          - mipsel_24kc
+          - mipsel_24kc_24kf
+          - mipsel_74kc
+          - mipsel_mips32
+          - x86_64
+        include:
+          - branch: openwrt-21.02
+            arch: mipsel_24kc
+          - branch: SNAPSHOT
+            arch: x86_64
+    container:
+      image: openwrt/sdk:${{ matrix.arch }}-${{ matrix.branch }}
+      options: --user root
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup ccache
+        uses: actions/cache@v4
+        with:
+          path: /builder/.ccache
+          key: ccache-${{ matrix.branch }}-${{ matrix.arch }}-${{ github.run_id }}
+          restore-keys: ccache-${{ matrix.branch }}-${{ matrix.arch }}-
+
+      - name: GH API
+        id: gh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run : |
+          TAG=$(wget -qO- --header="Authorization: token $GH_TOKEN" http://api.github.com/repos/hufrea/byedpi/releases/latest | grep -Po '"tag_name": "\K.*?(?=")')
+          echo "tag=$TAG" >> $GITHUB_ENV
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Build packages
+        id: build
+        working-directory: /builder
+        env:
+          ARCH: ${{ matrix.arch }}
+          BRANCH: ${{ matrix.branch }}
+          TAG: ${{ env.tag }}
+          SIGN_KEY: ${{ secrets.SIGN_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          export PKG_VERSION=$(echo $TAG | sed 's/v//')
+          cp -va $GITHUB_WORKSPACE/byedpi package
+          sed -e 's|base.*\.git|base https://github.com/openwrt/openwrt.git|' \
+              -e 's|packages.*\.git|packages https://github.com/openwrt/packages.git|' -i feeds.conf.default
+          ./scripts/feeds update base packages
+          ./scripts/feeds install -a
+          make defconfig
+          make package/byedpi/compile V=s -j$(nproc) CONFIG_CCACHE=1 BUILD_LOG=1
+          ./staging_dir/host/bin/ccache --dir .ccache --max-size=50M --show-stats
+          find ./bin/packages/*/base -type f ! -name 'byedpi*.ipk' -delete
+          echo "$SIGN_KEY" | base64 -d > key-build
+          make package/index
+          tar -C ./bin/packages/*/base -cvf ipk-$BRANCH-$ARCH.tar --transform "s|^\./|${BRANCH/openwrt-}/$ARCH/|" --show-transformed-names .
+
+      - name: Compress build logs
+        if: always()
+        env:
+          ARCH: ${{ matrix.arch }}
+          BRANCH: ${{ matrix.branch }}
+        run: |
+          tar -cJvf logs-$BRANCH-$ARCH.tar.xz /builder/logs
+
+      - name: Upload packages
+        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipk-${{ matrix.branch }}-${{ matrix.arch }}
+          path: /builder/ipk-${{ matrix.branch }}-${{ matrix.arch }}.tar
+          if-no-files-found: error
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.arch }}-${{ matrix.branch }}
+          path: ./**/logs-${{ matrix.branch }}-${{ matrix.arch }}.tar.xz
+
+  gh-pages:
+    needs: build
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ipk-*
+
+      - name: Prepare files to publish
+        run: |
+          mkdir public
+          find . -name 'ipk-*.tar' -exec tar -C ./public -xvf {} \;
+
+      - name: Deploy to GH pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
+          full_commit_message: 'Deploy ${{ needs.build.outputs.tag }}'
+          force_orphan: true
+
+  release:
+    needs: [build, gh-pages]
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1
+      matrix:
+        branch: ['21.02']
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ipk-*
+
+      - name: Put ipk into zip
+        id: zip
+        env:
+          BRANCH: ${{ matrix.branch }}
+        run: |
+          find . -name "ipk-openwrt-$BRANCH-*.tar" -exec tar xvf {} --wildcards '*.ipk' \;
+          mkdir -p public
+          find $BRANCH -mindepth 1 -type d -exec sh -c 'zip -0 ./public/byedpi-$(basename {}).ipk.zip -j {} {}/*' \;
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          fail_on_unmatched_files: true
+          prerelease: false
+          tag_name: ${{ needs.build.outputs.tag }}-${{ matrix.branch }}
+          name: ${{ needs.build.outputs.tag }} for OpenWrt ${{ matrix.branch }}
+          body: |
+            ByeDPI ${{ needs.build.outputs.tag }} for OpenWrt ${{ matrix.branch }}
+          files: |
+            ./public/*.zip
