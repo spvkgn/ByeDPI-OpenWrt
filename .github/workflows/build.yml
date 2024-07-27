@@ -2,7 +2,6 @@ name: build
 
 on:
   workflow_dispatch:
-  push:
 
 jobs:
   build:
@@ -52,13 +51,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup ccache
-        uses: actions/cache@v4
-        with:
-          path: /builder/.ccache
-          key: ccache-${{ matrix.branch }}-${{ matrix.arch }}-${{ github.run_id }}
-          restore-keys: ccache-${{ matrix.branch }}-${{ matrix.arch }}-
-
       - name: GH API
         id: gh
         env:
@@ -85,8 +77,7 @@ jobs:
           ./scripts/feeds update base packages
           ./scripts/feeds install -a
           make defconfig
-          make package/byedpi/compile V=s -j$(nproc) CONFIG_CCACHE=1 BUILD_LOG=1
-          ./staging_dir/host/bin/ccache --dir .ccache --max-size=50M --show-stats
+          make package/byedpi/compile V=s -j$(nproc) BUILD_LOG=1
           find ./bin/packages/*/base -type f ! -name 'byedpi*.ipk' -delete
           echo "$SIGN_KEY" | base64 -d > key-build
           make package/index
@@ -159,7 +150,7 @@ jobs:
         env:
           BRANCH: ${{ matrix.branch }}
         run: |
-          find . -name "ipk-openwrt-$BRANCH-*.tar" -exec tar xvf {} --wildcards '*.ipk' \;
+          find . -name "ipk-openwrt-$BRANCH-*.tar" -exec tar -xvf {} --wildcards '*.ipk' \;
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
@@ -167,6 +158,7 @@ jobs:
           fail_on_unmatched_files: true
           prerelease: false
           tag_name: ${{ needs.build.outputs.tag }}-${{ matrix.branch }}
+          target_commitish: gh-pages
           name: ${{ needs.build.outputs.tag }} for OpenWrt ${{ matrix.branch }}
           body: |
             ByeDPI ${{ needs.build.outputs.tag }} for OpenWrt ${{ matrix.branch }}
