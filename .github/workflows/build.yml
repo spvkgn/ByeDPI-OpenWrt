@@ -158,7 +158,6 @@ jobs:
           fail_on_unmatched_files: true
           prerelease: false
           tag_name: ${{ needs.build.outputs.tag }}-${{ matrix.branch }}
-          target_commitish: gh-pages
           name: ${{ needs.build.outputs.tag }} for OpenWrt ${{ matrix.branch }}
           body: |
             ByeDPI ${{ needs.build.outputs.tag }} for OpenWrt ${{ matrix.branch }}
