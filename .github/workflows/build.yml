@@ -153,13 +153,12 @@ jobs:
           find . -name "ipk-openwrt-$BRANCH-*.tar" -exec tar -xvf {} --wildcards '*.ipk' \;
 
       - name: Upload release assets
-        uses: softprops/action-gh-release@v2
+        uses: ncipollo/release-action@v1
         with:
-          fail_on_unmatched_files: true
+          allowUpdates: true
           prerelease: false
-          tag_name: ${{ needs.build.outputs.tag }}-${{ matrix.branch }}
+          tag: ${{ needs.build.outputs.tag }}-${{ matrix.branch }}
           name: ${{ needs.build.outputs.tag }} for OpenWrt ${{ matrix.branch }}
           body: |
             ByeDPI ${{ needs.build.outputs.tag }} for OpenWrt ${{ matrix.branch }}
-          files: |
-            ./**/*.ipk
+          artifacts: ./**/*.ipk

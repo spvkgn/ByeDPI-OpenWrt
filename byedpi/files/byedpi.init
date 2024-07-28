@@ -48,15 +48,21 @@ section_enabled() {
 
 start_instance() {
 	local cfg="$1"
+	local cmd_opts
 
 	section_enabled "$cfg" || return
 	. /lib/functions/network.sh
 
 	OPTS=""
 
-	append_opts "$cfg" ip port max_conn conn_ip buf_size debug def_ttl auto cache_ttl timeout proto hosts disorder oob fake ttl ip_opt fake_data tls_sni oob_data mod_http
-	append_opts_list "$cfg" split tlsrec
-	append_opts_boolean "$cfg" no_domain no_udp tfo md5sig
+	config_get cmd_opts main cmd_opts
+	if [ -n "$cmd_opts" ]; then
+		OPTS="$cmd_opts"
+	else
+		append_opts "$cfg" ip port max_conn conn_ip buf_size debug def_ttl auto cache_ttl timeout proto hosts disorder oob fake ttl ip_opt fake_data tls_sni oob_data mod_http
+		append_opts_list "$cfg" split tlsrec
+		append_opts_boolean "$cfg" no_domain no_udp tfo md5sig
+	fi
 
 	procd_open_instance
 	procd_set_param command $PROG $OPTS
