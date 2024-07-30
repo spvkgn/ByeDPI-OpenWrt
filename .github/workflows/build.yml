@@ -38,12 +38,12 @@ jobs:
           - mipsel_74kc
           - mipsel_mips32
           - x86_64
-        include:
-          - branch: SNAPSHOT
-            arch: x86_64
         exclude:
           - branch: openwrt-21.02
             arch: arm_cortex-a7_vfpv4
+        include:
+          - branch: SNAPSHOT
+            arch: x86_64
     container:
       image: openwrt/sdk:${{ matrix.arch }}-${{ matrix.branch }}
       options: --user root
@@ -103,7 +103,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: logs-${{ matrix.arch }}-${{ matrix.branch }}
+          name: logs-${{ matrix.branch }}-${{ matrix.arch }}
           path: ./**/logs-${{ matrix.branch }}-${{ matrix.arch }}.tar.xz
 
   gh-pages:
@@ -121,6 +121,10 @@ jobs:
         run: |
           mkdir public
           find . -name 'ipk-*.tar' -exec tar -C ./public -xvf {} \;
+          cat <<EOF >> public/public.key
+          untrusted comment: ByeDPI OpenWrt repo
+          RWRT/Cfg5ReIbqWME8QTUQ1FKxp8FTr9M9g1vDsL8uIdRyP5TTNAk4QA
+          EOF
 
       - name: Deploy to GH pages
         uses: peaceiris/actions-gh-pages@v4
