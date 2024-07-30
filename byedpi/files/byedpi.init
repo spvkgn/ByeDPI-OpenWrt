@@ -59,7 +59,7 @@ start_instance() {
 	if [ -n "$cmd_opts" ]; then
 		OPTS="$cmd_opts"
 	else
-		append_opts "$cfg" ip port max_conn conn_ip buf_size debug def_ttl auto cache_ttl timeout proto hosts disorder oob fake ttl ip_opt fake_data tls_sni oob_data mod_http
+		append_opts "$cfg" ip port max_conn conn_ip buf_size debug def_ttl auto cache_ttl timeout proto pf hosts disorder oob fake ttl ip_opt fake_data tls_sni oob_data mod_http udp_fake
 		append_opts_list "$cfg" split tlsrec
 		append_opts_boolean "$cfg" no_domain no_udp tfo md5sig
 	fi
@@ -68,6 +68,7 @@ start_instance() {
 	procd_set_param command $PROG $OPTS
 	procd_set_param stdout 1
 	procd_set_param stderr 1
+	procd_set_param respawn
 	procd_close_instance
 }
 
