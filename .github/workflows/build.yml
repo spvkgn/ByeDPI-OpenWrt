@@ -7,7 +7,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.gh.outputs.tag }}
+      tag: ${{ steps.prepare.outputs.tag }}
     strategy:
       matrix:
         branch: [openwrt-21.02, openwrt-22.03, openwrt-23.05]
@@ -51,37 +51,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: GH API
-        id: gh
+      - name: Prepare build
+        id: prepare
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run : |
           TAG=$(wget -qO- --header="Authorization: token $GH_TOKEN" http://api.github.com/repos/hufrea/byedpi/releases/latest | grep -Po '"tag_name": "\K.*?(?=")')
-          echo "tag=$TAG" >> $GITHUB_ENV
+          sed "s|@VERSION@|${TAG/v}|" -i byedpi/Makefile
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
-      - name: Build packages
+      - name: Build package
         id: build
         working-directory: /builder
         env:
           ARCH: ${{ matrix.arch }}
           BRANCH: ${{ matrix.branch }}
-          TAG: ${{ env.tag }}
           SIGN_KEY: ${{ secrets.SIGN_PRIVATE_KEY }}
         shell: bash
         run: |
-          export PKG_VERSION=$(echo $TAG | sed 's/v//')
-          cp -va $GITHUB_WORKSPACE/byedpi package
-          sed -e 's|base.*\.git|base https://github.com/openwrt/openwrt.git|' \
-              -e 's|packages.*\.git|packages https://github.com/openwrt/packages.git|' -i feeds.conf.default
-          ./scripts/feeds update base packages
-          ./scripts/feeds install -a
+          echo "src-link byedpi $GITHUB_WORKSPACE" >> feeds.conf
+          ./scripts/feeds update byedpi
+          ./scripts/feeds install -a -p byedpi
           make defconfig
           make package/byedpi/compile V=s -j$(nproc) BUILD_LOG=1
-          find ./bin/packages/*/base -type f ! -name 'byedpi*.ipk' -delete
           echo "$SIGN_KEY" | base64 -d > key-build
           make package/index
-          tar -C ./bin/packages/*/base -cvf ipk-$BRANCH-$ARCH.tar --transform "s|^\./|${BRANCH/openwrt-}/$ARCH/|" --show-transformed-names .
+          tar -C ./bin/packages/*/byedpi -cvf ipk-$BRANCH-$ARCH.tar --transform "s|^\./|${BRANCH/openwrt-}/$ARCH/|" --show-transformed-names .
 
       - name: Compress build logs
         if: always()
@@ -104,7 +100,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: logs-${{ matrix.branch }}-${{ matrix.arch }}
-          path: ./**/logs-${{ matrix.branch }}-${{ matrix.arch }}.tar.xz
+          path: ./**/logs-*.tar.xz
 
   gh-pages:
     needs: build
@@ -165,4 +161,10 @@ jobs:
           name: ${{ needs.build.outputs.tag }} for OpenWrt ${{ matrix.branch }}
           body: |
             ByeDPI ${{ needs.build.outputs.tag }} for OpenWrt ${{ matrix.branch }}
+
+            Check the package architecture of your device:
+            ```
+            # grep ARCH /etc/openwrt_release
+            DISTRIB_ARCH='mipsel_24kc'
+            ```
           artifacts: ./**/*.ipk
