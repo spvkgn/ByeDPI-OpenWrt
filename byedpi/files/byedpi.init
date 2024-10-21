@@ -61,7 +61,7 @@ start_instance() {
 		OPTS="$cmd_opts"
 	else
 		append_opts "$cfg" ip port max_conn conn_ip buf_size debug def_ttl auto auto_mode cache_ttl timeout proto pf \
-			hosts disorder oob disoob fake ttl ip_opt fake_offset fake_data tls_sni oob_data mod_http udp_fake
+			round hosts disorder oob disoob fake ttl ip_opt fake_offset fake_data tls_sni oob_data mod_http udp_fake
 		append_opts_list "$cfg" split tlsrec
 		append_opts_boolean "$cfg" transparent no_domain no_udp tfo md5sig drop_sack
 	fi
