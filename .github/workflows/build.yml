@@ -10,7 +10,7 @@ jobs:
       tag: ${{ steps.prepare.outputs.tag }}
     strategy:
       matrix:
-        branch: [openwrt-21.02, openwrt-22.03, openwrt-23.05]
+        branch: [openwrt-19.07, openwrt-21.02, openwrt-22.03, openwrt-23.05]
         arch:
           - aarch64_cortex-a53
           - aarch64_cortex-a72
@@ -39,6 +39,12 @@ jobs:
           - mipsel_mips32
           - x86_64
         exclude:
+          - branch: openwrt-19.07
+            arch: arm_cortex-a7
+          - branch: openwrt-19.07
+            arch: arm_cortex-a7_vfpv4
+          - branch: openwrt-19.07
+            arch: mips_4kec
           - branch: openwrt-21.02
             arch: arm_cortex-a7_vfpv4
         include:
@@ -58,13 +64,13 @@ jobs:
           REPO: 'hufrea/byedpi'
         shell: bash
         run : |
-          TAG=$(wget -qO- --header="Authorization: token $GH_TOKEN" http://api.github.com/repos/$REPO/releases/latest | grep -Po '"tag_name": "\K.*?(?=")')
+          TAG=$(wget -qO- --header="Authorization: token $GH_TOKEN" http://api.github.com/repos/$REPO/releases/latest | grep -Po '"tag_name": "\K.+?(?=")')
           sed "s|@VERSION@|${TAG/v}|" -i byedpi/Makefile
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
       - name: Build package
         id: build
-        working-directory: /builder
+        working-directory: ${{ matrix.branch == 'openwrt-19.07' && '/home/build/openwrt' || '/builder' }}
         env:
           ARCH: ${{ matrix.arch }}
           BRANCH: ${{ matrix.branch }}
@@ -78,22 +84,23 @@ jobs:
           make package/byedpi/compile V=s -j$(nproc) BUILD_LOG=1
           echo "$SIGN_KEY" | base64 -d > key-build
           make package/index
-          tar -C ./bin/packages/*/byedpi -cvf ipk-$BRANCH-$ARCH.tar --transform "s|^\./|${BRANCH/openwrt-}/$ARCH/|" --show-transformed-names .
+          tar -C ./bin/packages/*/byedpi -cvf $GITHUB_WORKSPACE/ipk-$BRANCH-$ARCH.tar --transform "s|^\./|${BRANCH/openwrt-}/$ARCH/|" --show-transformed-names .
 
       - name: Compress build logs
         if: always()
         env:
           ARCH: ${{ matrix.arch }}
           BRANCH: ${{ matrix.branch }}
+          LOGS_DIR: ${{ matrix.branch == 'openwrt-19.07' && '/home/build/openwrt/logs' || '/builder/logs' }}
         run: |
-          tar -cJvf logs-$BRANCH-$ARCH.tar.xz /builder/logs
+          tar -cJvf logs-$BRANCH-$ARCH.tar.xz $LOGS_DIR
 
       - name: Upload packages
         if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: ipk-${{ matrix.branch }}-${{ matrix.arch }}
-          path: /builder/ipk-${{ matrix.branch }}-${{ matrix.arch }}.tar
+          path: ipk-${{ matrix.branch }}-${{ matrix.arch }}.tar
           if-no-files-found: error
 
       - name: Upload build logs
@@ -101,7 +108,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: logs-${{ matrix.branch }}-${{ matrix.arch }}
-          path: ./**/logs-*.tar.xz
+          path: logs-*.tar.xz
 
   gh-pages:
     needs: build
@@ -140,7 +147,7 @@ jobs:
     strategy:
       max-parallel: 1
       matrix:
-        branch: ['21.02', '22.03', '23.05']
+        branch: ['19.07', '21.02', '22.03', '23.05']
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
