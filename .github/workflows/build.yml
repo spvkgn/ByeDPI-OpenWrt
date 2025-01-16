@@ -10,7 +10,11 @@ jobs:
       tag: ${{ steps.prepare.outputs.tag }}
     strategy:
       matrix:
-        branch: [openwrt-19.07, openwrt-21.02, openwrt-22.03, openwrt-23.05]
+        branch:
+          - openwrt-19.07
+          - openwrt-21.02
+          - openwrt-22.03
+          - openwrt-23.05
         arch:
           - aarch64_cortex-a53
           - aarch64_cortex-a72
@@ -47,25 +51,30 @@ jobs:
             arch: mips_4kec
           - branch: openwrt-21.02
             arch: arm_cortex-a7_vfpv4
-        include:
-          - branch: SNAPSHOT
-            arch: x86_64
+        # include:
+        #   - branch: SNAPSHOT
+        #     arch: x86_64
     container:
       image: openwrt/sdk:${{ matrix.arch }}-${{ matrix.branch }}
       options: --user root
+    defaults: { run: { shell: bash } }
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup SDK
+        if: matrix.branch == 'openwrt-23.05' || matrix.branch == 'SNAPSHOT'
+        working-directory: /builder
+        run: HOME=/builder ./setup.sh
 
       - name: Prepare build
         id: prepare
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: 'hufrea/byedpi'
-        shell: bash
         run : |
           TAG=$(wget -qO- --header="Authorization: token $GH_TOKEN" http://api.github.com/repos/$REPO/releases/latest | grep -Po '"tag_name": "\K.+?(?=")')
-          sed "s|@VERSION@|${TAG/v}|" -i byedpi/Makefile
+          sed "s|@VERSION@|${TAG#v}|" -i byedpi/Makefile
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
       - name: Build package
@@ -75,7 +84,6 @@ jobs:
           ARCH: ${{ matrix.arch }}
           BRANCH: ${{ matrix.branch }}
           SIGN_KEY: ${{ secrets.SIGN_PRIVATE_KEY }}
-        shell: bash
         run: |
           echo "src-link byedpi $GITHUB_WORKSPACE" >> feeds.conf
           ./scripts/feeds update byedpi
@@ -140,14 +148,18 @@ jobs:
           force_orphan: true
 
   release:
-    needs: [build, gh-pages]
+    needs: [ build, gh-pages ]
     permissions:
       contents: write
     runs-on: ubuntu-latest
     strategy:
       max-parallel: 1
       matrix:
-        branch: ['19.07', '21.02', '22.03', '23.05']
+        branch:
+          - '19.07'
+          - '21.02'
+          - '22.03'
+          - '23.05'
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -171,9 +183,8 @@ jobs:
             ### ByeDPI ${{ needs.build.outputs.tag }} for OpenWrt ${{ matrix.branch }}
 
             -----
-            Check the package architecture of your device:
+            Check the package architecture of your device using the command:
             ```
-            # grep ARCH /etc/openwrt_release
-            DISTRIB_ARCH='mipsel_24kc'
+            # awk -F\' '/DISTRIB_ARCH/ {print $2}' /etc/openwrt_release
             ```
           artifacts: ./**/*.ipk
