@@ -1,0 +1,12 @@
+Package: byedpi
+Version: 0.16.1-1
+Depends: libc
+License: MIT
+Section: net
+Architecture: mipsel_24kc
+Installed-Size: 24161
+Filename: byedpi_0.16.1-1_mipsel_24kc.ipk
+Size: 24906
+SHA256sum: 9fb10d4614e3d2b749ad932831893c55954d082174d957cae62b3cf0f92ab636
+Description:  Local SOCKS proxy server to bypass DPI (Deep Packet Inspection)
+
