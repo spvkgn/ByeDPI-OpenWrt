@@ -144,7 +144,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
-          full_commit_message: 'Deploy ${{ needs.build.outputs.tag }}'
+          full_commit_message: 'ByeDPI ${{ needs.build.outputs.tag }}'
           force_orphan: true
 
   release:
@@ -173,12 +173,12 @@ jobs:
           find . -name "ipk-openwrt-$BRANCH-*.tar" -exec tar -xvf {} --wildcards '*.ipk' \;
 
       - name: Upload release assets
-        uses: ncipollo/release-action@v1
+        uses: softprops/action-gh-release@v2
         with:
-          allowUpdates: true
-          prerelease: false
-          tag: ${{ needs.build.outputs.tag }}-${{ matrix.branch }}
+          fail_on_unmatched_files: true
+          tag_name: ${{ needs.build.outputs.tag }}-${{ matrix.branch }}
           name: ${{ needs.build.outputs.tag }} for OpenWrt ${{ matrix.branch }}
+          target_commitish: gh-pages
           body: |
             ### ByeDPI ${{ needs.build.outputs.tag }} for OpenWrt ${{ matrix.branch }}
 
@@ -187,4 +187,4 @@ jobs:
             ```
             # awk -F\' '/DISTRIB_ARCH/ {print $2}' /etc/openwrt_release
             ```
-          artifacts: ./**/*.ipk
+          files: ./**/*.ipk
