@@ -1,0 +1,12 @@
+diff --git a/Makefile b/Makefile
+index 1104290..eacfcb6 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,6 +1,6 @@
+ TARGET = ciadpi
+ 
+-CPPFLAGS = -D_DEFAULT_SOURCE
++CPPFLAGS = -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=199309L
+ CFLAGS += -I. -std=c99 -O2 -Wall -Wno-unused -Wextra -Wno-unused-parameter -pedantic
+ WIN_LDFLAGS = -lws2_32 -lmswsock
+ 
