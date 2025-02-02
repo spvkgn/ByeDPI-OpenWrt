@@ -1,0 +1,16 @@
+Package: byedpi
+Version: 0.16.3-1
+Depends: libc
+Source: /__w/ByeDPI-OpenWrt/ByeDPI-OpenWrt/byedpi
+SourceName: byedpi
+License: MIT
+LicenseFiles: LICENSE
+Section: net
+SourceDateEpoch: 1721689001
+Architecture: mips64_octeonplus
+Installed-Size: 32524
+Filename: byedpi_0.16.3-1_mips64_octeonplus.ipk
+Size: 33254
+SHA256sum: d3f4608f424a499436746a091f74a2d6d55a814c4364ed6390f22d808b13feb9
+Description:  Local SOCKS proxy server to bypass DPI (Deep Packet Inspection)
+
