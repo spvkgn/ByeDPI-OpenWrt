@@ -7,191 +7,145 @@ jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.prepare.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      tag:     ${{ steps.version.outputs.tag }}
     strategy:
       fail-fast: false
       matrix:
-        branch:
-          - openwrt-19.07
-          - openwrt-21.02
-          - openwrt-22.03
-          - openwrt-23.05
-          - openwrt-24.10
-        arch:
-          - aarch64_cortex-a53
-          - aarch64_cortex-a72
-          - aarch64_generic
-          - arm_arm1176jzf-s_vfp
-          - arm_arm926ej-s
-          - arm_cortex-a15_neon-vfpv4
-          - arm_cortex-a5_vfpv4
-          - arm_cortex-a7
-          - arm_cortex-a7_neon-vfpv4
-          - arm_cortex-a7_vfpv4
-          - arm_cortex-a8_vfpv3
-          - arm_cortex-a9
-          - arm_cortex-a9_neon
-          - arm_cortex-a9_vfpv3-d16
-          - arm_fa526
-          - arm_mpcore
-          - arm_xscale
-          - mips64_octeonplus
-          - mips_24kc
-          - mips_4kec
-          - mips_mips32
-          - mipsel_24kc
-          - mipsel_24kc_24kf
-          - mipsel_74kc
-          - mipsel_mips32
-          - x86_64
-        exclude:
-          - branch: openwrt-19.07
-            arch: arm_cortex-a7
-          - branch: openwrt-19.07
-            arch: arm_cortex-a7_vfpv4
-          - branch: openwrt-19.07
-            arch: mips_4kec
-          - branch: openwrt-21.02
-            arch: arm_cortex-a7_vfpv4
-          - branch: openwrt-24.10
-            arch: arm_mpcore
         include:
-          - branch: openwrt-24.10
-            arch: aarch64_cortex-a76
-          # - branch: SNAPSHOT
-          #   arch: x86_64
-    container:
-      image: openwrt/sdk:${{ matrix.arch }}-${{ matrix.branch }}
-      options: --user root
-    defaults: { run: { shell: bash } }
+          - hufrea_arch: aarch64
+            openwrt_arches: aarch64_cortex-a53 aarch64_cortex-a72 aarch64_cortex-a76 aarch64_generic
+          - hufrea_arch: armv7l
+            openwrt_arches: arm_cortex-a5_vfpv4 arm_cortex-a7 arm_cortex-a7_neon-vfpv4 arm_cortex-a7_vfpv4 arm_cortex-a8_vfpv3 arm_cortex-a9 arm_cortex-a9_neon arm_cortex-a9_vfpv3-d16 arm_cortex-a15_neon-vfpv4
+          - hufrea_arch: armv6
+            openwrt_arches: arm_arm1176jzf-s_vfp arm_arm926ej-s arm_fa526 arm_mpcore arm_xscale
+          - hufrea_arch: mips
+            openwrt_arches: mips_24kc mips_4kec mips_mips32
+          - hufrea_arch: mipsel
+            openwrt_arches: mipsel_24kc mipsel_24kc_24kf mipsel_74kc mipsel_mips32
+          - hufrea_arch: x86_64
+            openwrt_arches: x86_64
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
-      - name: Setup SDK
-        if: matrix.branch == 'openwrt-23.05' || matrix.branch == 'openwrt-24.10' || matrix.branch == 'SNAPSHOT'
-        working-directory: /builder
-        run: HOME=/builder ./setup.sh
+      - name: Setup tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo -E apt-get update -qq
+          sudo -E apt-get install -y build-essential fakeroot libssl-dev meson ninja-build
 
-      - name: Prepare build
-        id: prepare
+          git clone https://git.alpinelinux.org/apk-tools apk-tools-src
+          pushd apk-tools-src
+          git checkout b5a31c0d865342ad80be10d68f1bb3d3ad9b0866
+          meson setup build \
+            -Db_lto=true \
+            -Dcompressed-help=false \
+            -Ddocs=disabled \
+            -Dhelp=disabled \
+            -Dlua_version=disabled \
+            -Ddefault_library=static \
+            -Durl_backend=wget \
+            -Dzstd=false \
+            -Dpython=disabled \
+            -Dtests=disabled \
+            -Dcrypto_backend=openssl
+          ninja -C build
+          sudo meson install -C build --strip
+          popd
+
+          curl -fsSL "https://raw.githubusercontent.com/openwrt/openwrt/master/scripts/ipkg-build" \
+            | sudo tee /usr/local/bin/ipkg-build > /dev/null
+          sudo chmod +x /usr/local/bin/ipkg-build
+
+      - name: Get latest byedpi version
+        id: version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: 'hufrea/byedpi'
-        run : |
-          TAG=$(wget -qO- --header="Authorization: token $GH_TOKEN" http://api.github.com/repos/$REPO/releases/latest | grep -Po '"tag_name": "\K.+?(?=")')
-          sed "s|@VERSION@|${TAG#v}|" -i byedpi/Makefile
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-
-      - name: Build package
-        id: build
-        working-directory: ${{ matrix.branch == 'openwrt-19.07' && '/home/build/openwrt' || '/builder' }}
-        env:
-          ARCH: ${{ matrix.arch }}
-          BRANCH: ${{ matrix.branch }}
-          SIGN_KEY: ${{ secrets.SIGN_PRIVATE_KEY }}
         run: |
-          echo "src-link byedpi $GITHUB_WORKSPACE" >> feeds.conf
-          ./scripts/feeds update byedpi
-          ./scripts/feeds install -a -p byedpi
-          make defconfig
-          make package/byedpi/compile V=s -j$(nproc) BUILD_LOG=1
-          echo "$SIGN_KEY" | base64 -d > key-build
-          make package/index
-          tar -C ./bin/packages/*/byedpi -cvf $GITHUB_WORKSPACE/ipk-$BRANCH-$ARCH.tar --transform "s|^\./|${BRANCH/openwrt-}/$ARCH/|" --show-transformed-names .
+          TAG=$(wget -qO- --header="Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/hufrea/byedpi/releases/latest" \
+            | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+          VERSION="${TAG#v}"
+          ARCHIVE_VERSION="${VERSION#0.}"
+          echo "tag=$TAG"              >> $GITHUB_OUTPUT
+          echo "version=$VERSION"     >> $GITHUB_OUTPUT
+          echo "archive_ver=$ARCHIVE_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Compress build logs
-        if: always()
-        env:
-          ARCH: ${{ matrix.arch }}
-          BRANCH: ${{ matrix.branch }}
-          LOGS_DIR: ${{ matrix.branch == 'openwrt-19.07' && '/home/build/openwrt/logs' || '/builder/logs' }}
+      - name: Download binary
         run: |
-          tar -cJvf logs-$BRANCH-$ARCH.tar.xz $LOGS_DIR
+          TAG="${{ steps.version.outputs.tag }}"
+          ARCHIVE_VER="${{ steps.version.outputs.archive_ver }}"
+          HUFREA_ARCH="${{ matrix.hufrea_arch }}"
+          wget -q "https://github.com/hufrea/byedpi/releases/download/${TAG}/byedpi-${ARCHIVE_VER}-${HUFREA_ARCH}.tar.gz" \
+            -O binary.tar.gz
+          tar xzf binary.tar.gz
+          BINARY=$(find . -name 'ciadpi*' -type f | head -1)
+          if [ -z "$BINARY" ]; then
+            echo "ERROR: ciadpi binary not found in archive. Archive contents:"
+            tar tzf binary.tar.gz
+            exit 1
+          fi
+          chmod +x "$BINARY"
+          mv "$BINARY" ./ciadpi
 
-      - name: Upload packages
-        if: steps.build.outcome == 'success'
-        uses: actions/upload-artifact@v4
+      - name: Setup APK signing key
+        # Optional: add SIGN_PRIVATE_KEY (base64-encoded usign private key) to
+        # repository secrets (Settings → Secrets → Actions) to sign APK packages.
+        # Unsigned packages still install fine — signing enables repository trust.
+        run: |
+          if [ -n "${{ secrets.SIGN_PRIVATE_KEY }}" ]; then
+            echo "${{ secrets.SIGN_PRIVATE_KEY }}" > /tmp/sign.key
+            chmod 600 /tmp/sign.key
+            echo "APK_SIGN_KEY=/tmp/sign.key" >> $GITHUB_ENV
+          fi
+
+      - name: Build packages
+        run: |
+          bash .github/build-byedpi.sh \
+            "${{ steps.version.outputs.version }}" \
+            "./ciadpi" \
+            "${{ matrix.openwrt_arches }}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
         with:
-          name: ipk-${{ matrix.branch }}-${{ matrix.arch }}
-          path: ipk-${{ matrix.branch }}-${{ matrix.arch }}.tar
+          name: packages-${{ matrix.hufrea_arch }}
+          path: .github/out/
           if-no-files-found: error
 
-      - name: Upload build logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: logs-${{ matrix.branch }}-${{ matrix.arch }}
-          path: logs-*.tar.xz
-
-  gh-pages:
+  release:
     needs: build
     permissions:
       contents: write
     runs-on: ubuntu-latest
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
         with:
-          pattern: ipk-*
+          pattern: packages-*
+          merge-multiple: true
+          path: packages/
 
-      - name: Prepare files
-        run: |
-          mkdir public
-          find . -name 'ipk-*.tar' -exec tar -C ./public -xvf {} \;
-          cat <<EOF >> public/public.key
-          untrusted comment: ByeDPI OpenWrt repo
-          RWRT/Cfg5ReIbqWME8QTUQ1FKxp8FTr9M9g1vDsL8uIdRyP5TTNAk4QA
-          EOF
-
-      - name: Deploy to GH pages
-        uses: peaceiris/actions-gh-pages@v4
+      - name: Create release
+        uses: softprops/action-gh-release@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          user_name: 'github-actions[bot]'
-          user_email: 'github-actions[bot]@users.noreply.github.com'
-          full_commit_message: 'ByeDPI ${{ needs.build.outputs.tag }}'
-          force_orphan: true
-
-  release:
-    needs: [ build, gh-pages ]
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    strategy:
-      max-parallel: 1
-      matrix:
-        branch:
-          - '19.07'
-          - '21.02'
-          - '22.03'
-          - '23.05'
-          - '24.10'
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: ipk-*
-
-      - name: Prepare files
-        env:
-          BRANCH: ${{ matrix.branch }}
-        run: |
-          find . -name "ipk-openwrt-$BRANCH-*.tar" -exec tar -xvf {} --wildcards '*.ipk' \;
-
-      - name: Upload release assets
-        uses: softprops/action-gh-release@v2
-        with:
-          fail_on_unmatched_files: true
-          tag_name: ${{ needs.build.outputs.tag }}-${{ matrix.branch }}
-          name: ${{ needs.build.outputs.tag }} for OpenWrt ${{ matrix.branch }}
-          target_commitish: gh-pages
+          tag_name: ${{ needs.build.outputs.tag }}
+          name: ${{ needs.build.outputs.tag }}
           body: |
-            ### ByeDPI ${{ needs.build.outputs.tag }} for OpenWrt ${{ matrix.branch }}
+            ### ByeDPI ${{ needs.build.outputs.tag }}
+
+            Packages for all supported OpenWrt versions (19.07 → 25.12).
 
             -----
-            Check the package architecture of your device using the command:
+            Check your device architecture:
             ```
-            # awk -F\' '/DISTRIB_ARCH/ {print $2}' /etc/openwrt_release
+            awk -F\' '/DISTRIB_ARCH/ {print $2}' /etc/openwrt_release
             ```
-          files: ./**/*.ipk
+
+            **Note:** `mips64_octeonplus` is not available (no upstream pre-built binary).
+          files: |
+            packages/*.ipk
+            packages/*.apk
